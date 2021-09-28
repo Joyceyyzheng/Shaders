@@ -1,0 +1,162 @@
+// modified from theBookOfShaders
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+#define PI 3.14159265358979323846
+#define TWO_PI 6.28318530718
+
+uniform vec2 u_resolution;
+uniform float u_time;
+
+
+// simple square function
+float square(vec2 pos, float size) {
+    vec2 s = vec2(0.5)-vec2(size);
+    vec2 edges = step(s, pos);
+    edges *= step(s, 1.0-pos);
+    return edges.x * edges.y;
+}
+
+float circle(in vec2 _st, in float _radius){
+    vec2 dist = _st-vec2(0.5);
+    return 1.-smoothstep(_radius-(_radius*0.01),
+                         _radius+(_radius*0.01),
+                         dot(dist,dist)*4.0);
+}
+
+// 2D scale by a scalar vector
+mat2 scale(vec2 _scale){
+    return mat2(_scale.x,0.0,
+                0.0,_scale.y);
+}
+
+vec2 offsetGrid(vec2 coord, float zoom){
+    coord *= zoom;
+
+    // Here is where the offset is happening
+    // When the modulo 2. of y is bigger
+    // than 1. st.x gets multiplied by 0.5
+    coord.x += step(1., mod(coord.y,2.0)) * 0.5;
+
+    return fract(coord);
+}
+
+vec2 rotate2D (vec2 coord, float angle) {
+    coord -= 0.5;
+    coord =  mat2(cos(angle),-sin(angle),
+                sin(angle),cos(angle)) * coord;
+    coord += 0.5;
+    return coord;
+}
+
+vec2 makeGrid (vec2 coord, float zoom) {
+    coord *= zoom;
+    return fract(coord);
+}
+
+float smoothen(float d1, float d2) {
+    float k = 1.5;
+    return -log(exp(-k * d1) + exp(-k * d2)) / k;
+}
+
+vec2 rotateTilePattern(vec2 coord){
+
+    //  Scale the coordinate system by 2x2
+    coord *= 2.0;
+
+    //  Give each cell an index number
+    //  according to its position
+    float index = 0.0;
+    index += step(1., mod(coord.x,2.0));
+    index += step(1., mod(coord.y,2.0))*2.0;
+
+    //      |
+    //  2   |   3
+    //      |
+    //--------------
+    //      |
+    //  0   |   1
+    //      |
+
+    // Make each cell between 0.0 - 1.0
+    coord = fract(coord);
+
+    // Rotate each cell according to the index
+    if(index == 1.0){
+        //  Rotate cell 1 by 90 degrees
+        coord = rotate2D(coord,PI*0.5);
+    } else if(index == 2.0){
+        //  Rotate cell 2 by -90 degrees
+        coord = rotate2D(coord,PI*-0.5);
+    } else if(index == 3.0){
+        //  Rotate cell 3 by 180 degrees
+        coord = rotate2D(coord,PI);
+    }
+
+    return coord;
+}
+
+vec3 hsb2rgb( in vec3 c ){
+    vec3 rgb = clamp(abs(mod(c.x*6.0+vec3(0.0,4.0,2.0),
+                             6.0)-3.0)-1.0,
+                     0.0,
+                     1.0 );
+    rgb = rgb*rgb*(3.0-2.0*rgb);
+    return c.z * mix( vec3(1.0), rgb, c.y);
+}
+
+
+void main (void) {
+    vec2 st = gl_FragCoord.xy/u_resolution.xy;
+
+    // Increase the tile value below
+    vec2 tiles = makeGrid(st,1.0);
+   // tiles = scale(vec2(2.)) * tiles;//只是增加了很多啦
+    
+    // The uncomment the following line to create 
+    // the rotated tile pattern
+    // tiles = rotateTilePattern(tiles);
+    vec2 grid = offsetGrid(sin(st),5.0);
+
+    vec2 grid1 = fract(st*.8)*sin(u_time);//grid1 from my previous exercise 😅
+    // Make more interesting combinations
+    tiles = makeGrid(tiles,16.*(cos(u_time/4.))); //to make the ripples more smooth
+    tiles = rotate2D(tiles*grid,-PI*u_time*0.25*grid.x); //grid*tiles can create a distorted effect
+    tiles = rotateTilePattern(tiles*2.);
+    tiles = rotate2D(tiles*grid1,PI*u_time*0.25); //another grid*tiles instead of just tiles make the gradient move
+    
+    float N = 10.;
+    float a = atan(st.x,st.y)+PI;
+    float r = TWO_PI/float(N);
+    // Shaping function that modulate the distance
+   // float d = sin(floor(.5+a/r)*r-a)*length(st/0.9);
+   
+    float d = 0.0;
+    
+    //meatball part
+    vec2 p0 = vec2(cos(u_time) * 0.2 , 0.5*sin(u_time)*tiles); //times tiles.y/x will make the shape fuse into the grid 
+    vec2 p1 = vec2(sin(u_time) * 0.4 , fract(smoothen(circle(scale(vec2(sin(u_time)*0.8))*tiles,0.1),0.01)));//add fract will result in some ugly effect
+    d = smoothen(distance(st, p0) * 1.7, distance(st, p1) * 2.9);
+    float ae = 5.0 / u_resolution.y;
+  
+    vec3 color = vec3(smoothstep(0.6, 0.6+ae*tiles.x, d)); //ae*times tiles.x will full fill the screen with the pattern
+    //d*tiles.x would also, but in another way
+    //the intial number has to be the same to make sure the effect
+    
+    //colors
+//    vec3 colorA = vec3(0.149,0.141,0.812);
+    vec3 colorA = vec3(0.1,0.77,0.7);
+    vec3 colorB = vec3(0.20,0.33,0.924);
+    
+    float pct = mix(colorA.x,colorB.x,0.);
+    vec3 color_c = mix(colorA, colorB, pct);
+    float pct1 = mix(colorA.x,colorB.x,-0.);
+    vec3 color_b = mix(colorA, colorB, pct1);
+
+    // but you can use whatever design you want.
+    //gl_FragColor = vec4(vec3(step(tiles.x,tiles.y)),1.0); //using st.x of tiles.x will map the colors gradiently
+    gl_FragColor = vec4(vec3((color+color_c)*color_b),1.0); //using st.x of tiles.x will map the colors gradiently
+    //+color_c inside, * outside
+}
